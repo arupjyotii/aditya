@@ -2,59 +2,63 @@ import { db } from './database.js';
 import fs from 'fs';
 import path from 'path';
 
-async function initializeDatabase() {
+export async function initializeDatabase() {
   console.log('🗄️  Initializing database...');
   
   try {
-    // Create departments table
-    await db.schema
-      .createTable('departments')
-      .ifNotExists()
-      .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-      .addColumn('name', 'text', (col) => col.notNull())
-      .addColumn('description', 'text')
-      .addColumn('created_at', 'text', (col) => col.notNull())
-      .addColumn('updated_at', 'text', (col) => col.notNull())
-      .execute();
+    // Create departments table using raw SQL
+    await db.executeQuery({
+      sql: `CREATE TABLE IF NOT EXISTS departments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      parameters: []
+    });
 
-    // Create doctors table
-    await db.schema
-      .createTable('doctors')
-      .ifNotExists()
-      .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-      .addColumn('name', 'text', (col) => col.notNull())
-      .addColumn('email', 'text')
-      .addColumn('phone', 'text')
-      .addColumn('specialization', 'text')
-      .addColumn('department_id', 'integer', (col) => 
-        col.references('departments.id').onDelete('set null'))
-      .addColumn('photo_url', 'text')
-      .addColumn('schedule', 'text')
-      .addColumn('created_at', 'text', (col) => col.notNull())
-      .addColumn('updated_at', 'text', (col) => col.notNull())
-      .execute();
+    // Create doctors table using raw SQL
+    await db.executeQuery({
+      sql: `CREATE TABLE IF NOT EXISTS doctors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        specialization TEXT,
+        department_id INTEGER,
+        photo_url TEXT,
+        schedule TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+      )`,
+      parameters: []
+    });
 
-    // Create services table
-    await db.schema
-      .createTable('services')
-      .ifNotExists()
-      .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-      .addColumn('name', 'text', (col) => col.notNull())
-      .addColumn('description', 'text')
-      .addColumn('department_id', 'integer', (col) => 
-        col.references('departments.id').onDelete('set null'))
-      .addColumn('created_at', 'text', (col) => col.notNull())
-      .addColumn('updated_at', 'text', (col) => col.notNull())
-      .execute();
+    // Create services table using raw SQL
+    await db.executeQuery({
+      sql: `CREATE TABLE IF NOT EXISTS services (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        department_id INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
+      )`,
+      parameters: []
+    });
 
     console.log('✅ Database tables created successfully');
 
     // Insert sample data if tables are empty
-    const departmentCount = await db.selectFrom('departments')
-      .select(db.fn.count('id').as('count'))
-      .executeTakeFirst();
+    const departmentCount = await db.executeQuery({
+      sql: 'SELECT COUNT(*) as count FROM departments',
+      parameters: []
+    });
 
-    if (Number(departmentCount?.count) === 0) {
+    if (Number(departmentCount.rows[0]?.count) === 0) {
       console.log('📝 Inserting sample data...');
       
       // Sample departments
@@ -67,13 +71,10 @@ async function initializeDatabase() {
       ];
 
       for (const dept of departments) {
-        await db.insertInto('departments')
-          .values({
-            ...dept,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .execute();
+        await db.executeQuery({
+          sql: 'INSERT INTO departments (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)',
+          parameters: [dept.name, dept.description, new Date().toISOString(), new Date().toISOString()]
+        });
       }
 
       // Sample doctors
@@ -105,13 +106,19 @@ async function initializeDatabase() {
       ];
 
       for (const doctor of doctors) {
-        await db.insertInto('doctors')
-          .values({
-            ...doctor,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .execute();
+        await db.executeQuery({
+          sql: 'INSERT INTO doctors (name, email, phone, specialization, department_id, schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          parameters: [
+            doctor.name,
+            doctor.email,
+            doctor.phone,
+            doctor.specialization,
+            doctor.department_id,
+            doctor.schedule,
+            new Date().toISOString(),
+            new Date().toISOString()
+          ]
+        });
       }
 
       // Sample services
@@ -144,13 +151,16 @@ async function initializeDatabase() {
       ];
 
       for (const service of services) {
-        await db.insertInto('services')
-          .values({
-            ...service,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .execute();
+        await db.executeQuery({
+          sql: 'INSERT INTO services (name, description, department_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+          parameters: [
+            service.name,
+            service.description,
+            service.department_id,
+            new Date().toISOString(),
+            new Date().toISOString()
+          ]
+        });
       }
 
       console.log('✅ Sample data inserted successfully');
@@ -162,10 +172,3 @@ async function initializeDatabase() {
     process.exit(1);
   }
 }
-
-// Run initialization if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  initializeDatabase();
-}
-
-export { initializeDatabase };

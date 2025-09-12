@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import { setupStaticServing } from './static-serve.js';
 import { db } from './database.js';
+import { initializeDatabase } from './init-db.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
@@ -156,13 +157,23 @@ app.post('/api/auth/logout', (req, res) => {
 // Dashboard API
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
     try {
-        const doctorsCount = await db.selectFrom('doctors').select(db.fn.count('id').as('count')).executeTakeFirst();
-        const departmentsCount = await db.selectFrom('departments').select(db.fn.count('id').as('count')).executeTakeFirst();
-        const servicesCount = await db.selectFrom('services').select(db.fn.count('id').as('count')).executeTakeFirst();
+        const doctorsCount = await db.executeQuery({
+            sql: 'SELECT COUNT(*) as count FROM doctors',
+            parameters: []
+        });
+        const departmentsCount = await db.executeQuery({
+            sql: 'SELECT COUNT(*) as count FROM departments',
+            parameters: []
+        });
+        const servicesCount = await db.executeQuery({
+            sql: 'SELECT COUNT(*) as count FROM services',
+            parameters: []
+        });
+        
         res.json({
-            doctors: Number(doctorsCount?.count) || 0,
-            departments: Number(departmentsCount?.count) || 0,
-            services: Number(servicesCount?.count) || 0
+            doctors: Number(doctorsCount.rows[0]?.count) || 0,
+            departments: Number(departmentsCount.rows[0]?.count) || 0,
+            services: Number(servicesCount.rows[0]?.count) || 0
         });
     }
     catch (error) {
@@ -173,11 +184,11 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
 // Department APIs
 app.get('/api/departments', authenticateToken, async (req, res) => {
     try {
-        const departments = await db.selectFrom('departments')
-            .selectAll()
-            .orderBy('name')
-            .execute();
-        res.json(departments);
+        const result = await db.executeQuery({
+            sql: 'SELECT * FROM departments ORDER BY name',
+            parameters: []
+        });
+        res.json(result.rows);
     }
     catch (error) {
         console.error('Get departments error:', error);
@@ -187,16 +198,11 @@ app.get('/api/departments', authenticateToken, async (req, res) => {
 app.post('/api/departments', authenticateToken, async (req, res) => {
     try {
         const { name, description } = req.body;
-        const result = await db.insertInto('departments')
-            .values({
-            name,
-            description,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
-            .returning('id')
-            .executeTakeFirst();
-        res.json({ id: result?.id, name, description });
+        const result = await db.executeQuery({
+            sql: 'INSERT INTO departments (name, description, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id',
+            parameters: [name, description, new Date().toISOString(), new Date().toISOString()]
+        });
+        res.json({ id: result.rows[0]?.id, name, description });
     }
     catch (error) {
         console.error('Create department error:', error);
@@ -207,14 +213,10 @@ app.put('/api/departments/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description } = req.body;
-        await db.updateTable('departments')
-            .set({
-            name,
-            description,
-            updated_at: new Date().toISOString()
-        })
-            .where('id', '=', Number(id))
-            .execute();
+        await db.executeQuery({
+            sql: 'UPDATE departments SET name = ?, description = ?, updated_at = ? WHERE id = ?',
+            parameters: [name, description, new Date().toISOString(), Number(id)]
+        });
         res.json({ id: Number(id), name, description });
     }
     catch (error) {
@@ -225,7 +227,10 @@ app.put('/api/departments/:id', authenticateToken, async (req, res) => {
 app.delete('/api/departments/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.deleteFrom('departments').where('id', '=', Number(id)).execute();
+        await db.executeQuery({
+            sql: 'DELETE FROM departments WHERE id = ?',
+            parameters: [Number(id)]
+        });
         res.json({ success: true });
     }
     catch (error) {
@@ -236,24 +241,18 @@ app.delete('/api/departments/:id', authenticateToken, async (req, res) => {
 // Doctor APIs
 app.get('/api/doctors', authenticateToken, async (req, res) => {
     try {
-        const doctors = await db.selectFrom('doctors')
-            .leftJoin('departments', 'doctors.department_id', 'departments.id')
-            .select([
-            'doctors.id',
-            'doctors.name',
-            'doctors.email',
-            'doctors.phone',
-            'doctors.specialization',
-            'doctors.department_id',
-            'doctors.photo_url',
-            'doctors.schedule',
-            'doctors.created_at',
-            'doctors.updated_at',
-            'departments.name as department_name'
-        ])
-            .orderBy('doctors.name')
-            .execute();
-        res.json(doctors);
+        const result = await db.executeQuery({
+            sql: `SELECT 
+                d.id, d.name, d.email, d.phone, d.specialization, 
+                d.department_id, d.photo_url, d.schedule, 
+                d.created_at, d.updated_at,
+                dept.name as department_name
+                FROM doctors d
+                LEFT JOIN departments dept ON d.department_id = dept.id
+                ORDER BY d.name`,
+            parameters: []
+        });
+        res.json(result.rows);
     }
     catch (error) {
         console.error('Get doctors error:', error);
@@ -263,21 +262,11 @@ app.get('/api/doctors', authenticateToken, async (req, res) => {
 app.post('/api/doctors', authenticateToken, async (req, res) => {
     try {
         const { name, email, phone, specialization, department_id, photo_url, schedule } = req.body;
-        const result = await db.insertInto('doctors')
-            .values({
-            name,
-            email,
-            phone,
-            specialization,
-            department_id: department_id || null,
-            photo_url,
-            schedule,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
-            .returning('id')
-            .executeTakeFirst();
-        res.json({ id: result?.id, name, email, phone, specialization, department_id, photo_url, schedule });
+        const result = await db.executeQuery({
+            sql: 'INSERT INTO doctors (name, email, phone, specialization, department_id, photo_url, schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+            parameters: [name, email, phone, specialization, department_id || null, photo_url, schedule, new Date().toISOString(), new Date().toISOString()]
+        });
+        res.json({ id: result.rows[0]?.id, name, email, phone, specialization, department_id, photo_url, schedule });
     }
     catch (error) {
         console.error('Create doctor error:', error);
@@ -288,19 +277,10 @@ app.put('/api/doctors/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { name, email, phone, specialization, department_id, photo_url, schedule } = req.body;
-        await db.updateTable('doctors')
-            .set({
-            name,
-            email,
-            phone,
-            specialization,
-            department_id: department_id || null,
-            photo_url,
-            schedule,
-            updated_at: new Date().toISOString()
-        })
-            .where('id', '=', Number(id))
-            .execute();
+        await db.executeQuery({
+            sql: 'UPDATE doctors SET name = ?, email = ?, phone = ?, specialization = ?, department_id = ?, photo_url = ?, schedule = ?, updated_at = ? WHERE id = ?',
+            parameters: [name, email, phone, specialization, department_id || null, photo_url, schedule, new Date().toISOString(), Number(id)]
+        });
         res.json({ id: Number(id), name, email, phone, specialization, department_id, photo_url, schedule });
     }
     catch (error) {
@@ -311,7 +291,10 @@ app.put('/api/doctors/:id', authenticateToken, async (req, res) => {
 app.delete('/api/doctors/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.deleteFrom('doctors').where('id', '=', Number(id)).execute();
+        await db.executeQuery({
+            sql: 'DELETE FROM doctors WHERE id = ?',
+            parameters: [Number(id)]
+        });
         res.json({ success: true });
     }
     catch (error) {
@@ -322,20 +305,17 @@ app.delete('/api/doctors/:id', authenticateToken, async (req, res) => {
 // Service APIs
 app.get('/api/services', authenticateToken, async (req, res) => {
     try {
-        const services = await db.selectFrom('services')
-            .leftJoin('departments', 'services.department_id', 'departments.id')
-            .select([
-            'services.id',
-            'services.name',
-            'services.description',
-            'services.department_id',
-            'services.created_at',
-            'services.updated_at',
-            'departments.name as department_name'
-        ])
-            .orderBy('services.name')
-            .execute();
-        res.json(services);
+        const result = await db.executeQuery({
+            sql: `SELECT 
+                s.id, s.name, s.description, s.department_id,
+                s.created_at, s.updated_at,
+                dept.name as department_name
+                FROM services s
+                LEFT JOIN departments dept ON s.department_id = dept.id
+                ORDER BY s.name`,
+            parameters: []
+        });
+        res.json(result.rows);
     }
     catch (error) {
         console.error('Get services error:', error);
@@ -345,17 +325,11 @@ app.get('/api/services', authenticateToken, async (req, res) => {
 app.post('/api/services', authenticateToken, async (req, res) => {
     try {
         const { name, description, department_id } = req.body;
-        const result = await db.insertInto('services')
-            .values({
-            name,
-            description,
-            department_id: department_id || null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
-            .returning('id')
-            .executeTakeFirst();
-        res.json({ id: result?.id, name, description, department_id });
+        const result = await db.executeQuery({
+            sql: 'INSERT INTO services (name, description, department_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id',
+            parameters: [name, description, department_id || null, new Date().toISOString(), new Date().toISOString()]
+        });
+        res.json({ id: result.rows[0]?.id, name, description, department_id });
     }
     catch (error) {
         console.error('Create service error:', error);
@@ -366,15 +340,10 @@ app.put('/api/services/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, department_id } = req.body;
-        await db.updateTable('services')
-            .set({
-            name,
-            description,
-            department_id: department_id || null,
-            updated_at: new Date().toISOString()
-        })
-            .where('id', '=', Number(id))
-            .execute();
+        await db.executeQuery({
+            sql: 'UPDATE services SET name = ?, description = ?, department_id = ?, updated_at = ? WHERE id = ?',
+            parameters: [name, description, department_id || null, new Date().toISOString(), Number(id)]
+        });
         res.json({ id: Number(id), name, description, department_id });
     }
     catch (error) {
@@ -385,7 +354,10 @@ app.put('/api/services/:id', authenticateToken, async (req, res) => {
 app.delete('/api/services/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.deleteFrom('services').where('id', '=', Number(id)).execute();
+        await db.executeQuery({
+            sql: 'DELETE FROM services WHERE id = ?',
+            parameters: [Number(id)]
+        });
         res.json({ success: true });
     }
     catch (error) {
@@ -396,24 +368,24 @@ app.delete('/api/services/:id', authenticateToken, async (req, res) => {
 // Public API endpoints (no authentication required)
 app.get('/api/public/departments', async (req, res) => {
     try {
-        const departments = await db.selectFrom('departments')
-            .selectAll()
-            .orderBy('name')
-            .execute();
-        // Calculate doctor_count and service_count for each department
-        const departmentsWithCounts = await Promise.all(departments.map(async (dept) => {
-            const doctorCount = await db.selectFrom('doctors')
-                .select(db.fn.count('id').as('count'))
-                .where('department_id', '=', dept.id)
-                .executeTakeFirst();
-            const serviceCount = await db.selectFrom('services')
-                .select(db.fn.count('id').as('count'))
-                .where('department_id', '=', dept.id)
-                .executeTakeFirst();
+        const result = await db.executeQuery({
+            sql: 'SELECT * FROM departments ORDER BY name',
+            parameters: []
+        });
+        
+        const departmentsWithCounts = await Promise.all(result.rows.map(async (dept) => {
+            const doctorCount = await db.executeQuery({
+                sql: 'SELECT COUNT(*) as count FROM doctors WHERE department_id = ?',
+                parameters: [dept.id]
+            });
+            const serviceCount = await db.executeQuery({
+                sql: 'SELECT COUNT(*) as count FROM services WHERE department_id = ?',
+                parameters: [dept.id]
+            });
             return {
                 ...dept,
-                doctor_count: Number(doctorCount?.count) || 0,
-                service_count: Number(serviceCount?.count) || 0
+                doctor_count: Number(doctorCount.rows[0]?.count) || 0,
+                service_count: Number(serviceCount.rows[0]?.count) || 0
             };
         }));
         res.json(departmentsWithCounts);
@@ -425,24 +397,18 @@ app.get('/api/public/departments', async (req, res) => {
 });
 app.get('/api/public/doctors', async (req, res) => {
     try {
-        const doctors = await db.selectFrom('doctors')
-            .leftJoin('departments', 'doctors.department_id', 'departments.id')
-            .select([
-            'doctors.id',
-            'doctors.name',
-            'doctors.email',
-            'doctors.phone',
-            'doctors.specialization',
-            'doctors.department_id',
-            'doctors.photo_url',
-            'doctors.schedule',
-            'doctors.created_at',
-            'doctors.updated_at',
-            'departments.name as department_name'
-        ])
-            .orderBy('doctors.name')
-            .execute();
-        res.json(doctors);
+        const result = await db.executeQuery({
+            sql: `SELECT 
+                d.id, d.name, d.email, d.phone, d.specialization, 
+                d.department_id, d.photo_url, d.schedule, 
+                d.created_at, d.updated_at,
+                dept.name as department_name
+                FROM doctors d
+                LEFT JOIN departments dept ON d.department_id = dept.id
+                ORDER BY d.name`,
+            parameters: []
+        });
+        res.json(result.rows);
     }
     catch (error) {
         console.error('Get public doctors error:', error);
@@ -451,20 +417,17 @@ app.get('/api/public/doctors', async (req, res) => {
 });
 app.get('/api/public/services', async (req, res) => {
     try {
-        const services = await db.selectFrom('services')
-            .leftJoin('departments', 'services.department_id', 'departments.id')
-            .select([
-            'services.id',
-            'services.name',
-            'services.description',
-            'services.department_id',
-            'services.created_at',
-            'services.updated_at',
-            'departments.name as department_name'
-        ])
-            .orderBy('services.name')
-            .execute();
-        res.json(services);
+        const result = await db.executeQuery({
+            sql: `SELECT 
+                s.id, s.name, s.description, s.department_id,
+                s.created_at, s.updated_at,
+                dept.name as department_name
+                FROM services s
+                LEFT JOIN departments dept ON s.department_id = dept.id
+                ORDER BY s.name`,
+            parameters: []
+        });
+        res.json(result.rows);
     }
     catch (error) {
         console.error('Get public services error:', error);
@@ -499,6 +462,10 @@ export async function startServer(port = Number(PORT), host = HOST) {
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir, { recursive: true });
         }
+        
+        // Initialize database
+        await initializeDatabase();
+        
         // Static serving is already set up above
         const server = app.listen(port, host, () => {
             console.log(` Aditya Hospital Admin Panel running on ${host}:${port}`);
