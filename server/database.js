@@ -1,6 +1,7 @@
 import { Kysely, SqliteDialect } from 'kysely';
 import Database from 'better-sqlite3';
 import path from 'path';
+import { initializeDatabase } from './init-db.js';
 const dataDirectory = process.env.DATA_DIRECTORY || './data';
 const sqliteDb = new Database(path.join(dataDirectory, 'database.sqlite'));
 export const db = new Kysely({
@@ -9,3 +10,6 @@ export const db = new Kysely({
     }),
     log: ['query', 'error']
 });
+
+// Initialize database on startup
+initializeDatabase().catch(console.error);
