@@ -29,8 +29,10 @@ app.use((req, res, next) => {
         'http://localhost:5173'
     ];
     const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin) || NODE_ENV === 'development') {
+    if (allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    } else if (NODE_ENV === 'development') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');

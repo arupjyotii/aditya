@@ -66,7 +66,7 @@ A complete hospital management system with Node.js backend and admin panel.
    sudo apt install certbot python3-certbot-nginx -y
    
    # Get SSL certificate
-   sudo certbot --nginx -d adityahospitalnagaon.com -d www.adityahospitalnagaon.com
+   sudo certbot --nginx -d adityahospitalnagaon.com
    ```
 
 ### Manual Deployment (Alternative)
@@ -132,7 +132,7 @@ JWT_SECRET=your-secure-jwt-secret-here
 
 ### Admin Access
 
-- **URL:** `https://your-domain.com/admin`
+- **URL:** `https://adityahospitalnagaon.com/admin`
 - **Username:** `joonborah`
 - **Password:** `r4nd0mP@ssw0rd123`
 

@@ -110,8 +110,8 @@ else
 fi
 
 print_status "🎉 Deployment completed successfully!"
-print_status "Application is running on: http://your-server-ip:3001"
-print_status "Health check: http://your-server-ip:3001/health"
+print_status "Application is running on: https://adityahospitalnagaon.com"
+print_status "Health check: https://adityahospitalnagaon.com/health"
 print_status ""
 print_status "Useful commands:"
 print_status "  - Check status: sudo systemctl status $SERVICE_NAME"
